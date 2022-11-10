@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 import com.sun.net.httpserver.Authenticator;
 import com.sun.net.httpserver.Headers;
@@ -52,6 +53,11 @@ public class SimpleHttpServer {
 
                 System.out.println(jo.toString());
                 System.out.println(password);
+                
+                final MessageDigest md = MessageDigest.getInstance("MD5");
+                final byte[] hashbytes = md.digest(password.getBytes(StandardCharsets.UTF_8));
+                // String sha3Hex = bytesToHex(hashbytes);
+                System.out.println(new String(hashbytes, StandardCharsets.UTF_8));
 
                 Connection conn = null;  
                 try {  
