@@ -1,4 +1,5 @@
 // http://www.javenue.info/post/java-http-server
+
 import java.io.UnsupportedEncodingException;
 
 import java.io.IOException;
@@ -52,6 +53,7 @@ public class SimpleHttpServer {
     }
 
     public static final String secret = "fj32Jfv02Mq33g0f8ioDkw";
+
     public static String createJWTToken(String name)
     {
         try {
@@ -110,11 +112,9 @@ public class SimpleHttpServer {
                 Statement statmt = conn.createStatement();
                 ResultSet resSet;
                 String password_hash = getHash(password);
-                System.out.println(password_hash);
                 resSet = statmt.executeQuery(String.format("SELECT * FROM users WHERE name = '%s' AND password_hash = '%s'", name, password_hash));
                 return (resSet.next()) ? true : false;
             } catch(SQLException e){
-                System.out.println(e.getMessage());
                 throw new RuntimeException(e);
             }
         }
@@ -292,10 +292,10 @@ public class SimpleHttpServer {
             while (m.find()) {
                 historySteps = m.group(1);
             }
+
+            Integer steps = historySteps.length() > 0 ? Integer.parseInt(historySteps) : -1;
             
-            Integer steps = Integer.parseInt(historySteps);
-            
-            return (steps >= 0) ? steps : -1;
+            return steps;
         }
 
         @Override
