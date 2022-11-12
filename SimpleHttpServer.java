@@ -14,10 +14,13 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import com.sun.net.httpserver.Authenticator;
 import com.sun.net.httpserver.Headers;
@@ -39,7 +42,7 @@ public class SimpleHttpServer {
         HttpServer server = HttpServer.create();
         server.bind(new InetSocketAddress(8765), 0);
 
-        HttpContext context = server.createContext("/", new EchoHandler());
+        HttpContext context = server.createContext("/", new LoginHandler());
         HttpContext messagesContext = server.createContext("/messages", new MessagesHandler());
         context.setAuthenticator(new Auth());
         messagesContext.setAuthenticator(new Auth());
@@ -77,7 +80,7 @@ public class SimpleHttpServer {
         }
     }
 
-    static class EchoHandler implements HttpHandler {
+    static class LoginHandler implements HttpHandler {
         
         public static String toHex(byte[] bytes) {
             StringBuilder hash = new StringBuilder();
@@ -107,6 +110,7 @@ public class SimpleHttpServer {
                 Statement statmt = conn.createStatement();
                 ResultSet resSet;
                 String password_hash = getHash(password);
+                System.out.println(password_hash);
                 resSet = statmt.executeQuery(String.format("SELECT * FROM users WHERE name = '%s' AND password_hash = '%s'", name, password_hash));
                 return (resSet.next()) ? true : false;
             } catch(SQLException e){
@@ -181,21 +185,6 @@ public class SimpleHttpServer {
                 } 
 
             }
-
-            // builder.append("<h1>URI: ").append(exchange.getRequestURI()).append("</h1>");
-
-            // Headers headers = exchange.getRequestHeaders();
-            // for (String header : headers.keySet()) {
-            //     builder.append("<p>").append(header).append("=")
-            //             .append(headers.getFirst(header)).append("</p>");
-            // }
-
-            // byte[] bytes = builder.toString().getBytes();
-            // exchange.sendResponseHeaders(200, bytes.length);
-
-            // OutputStream os = exchange.getResponseBody();
-            // os.write(bytes);
-            // os.close();
         }
     }
 
@@ -236,11 +225,24 @@ public class SimpleHttpServer {
                 System.out.println(e.getMessage());
                 throw new RuntimeException(e);
             }
-
         }
 
-        public static boolean tokenIsCorrect(String token) {
-            return true;
+        public static boolean tokenIsCorrect(String token, String name) {
+            
+            if(name.length() < 1)
+                return false;
+
+            Pattern p = Pattern.compile("Bearer_(.*)");
+            Matcher m = p.matcher(token);
+            String bearer_token = "";
+            
+            while (m.find()) {
+                bearer_token = m.group(1);
+            }
+            
+            String token_name = getNameInToken(bearer_token);
+            
+            return name.equals(token_name) ? true : false;
         }
 
         public static void saveMessageToDatabase(String message, Integer user_id, Connection conn) {
@@ -253,8 +255,47 @@ public class SimpleHttpServer {
             }
         }
 
-        public static Integer obtainUserId(String bearerToken, Connection conn) {
-            return 0;
+        public static Integer obtainUserId(String name, Connection conn) {
+            try {
+                Statement statmt = conn.createStatement();
+                ResultSet resSet;
+                resSet = statmt.executeQuery(String.format("SELECT user_id FROM users WHERE name = '%s'", name));
+                return (resSet.next()) ? resSet.getInt("user_id") : 0;
+            } catch(SQLException e){
+                System.out.println(e.getMessage());
+                throw new RuntimeException(e);
+            }
+        }
+
+        public static List<String> selectLastMessages(Connection conn, Integer limitValue) {
+            try {
+                List<String> messages = new ArrayList<String>();
+                Statement statmt = conn.createStatement();
+                ResultSet resSet;
+                resSet = statmt.executeQuery(String.format("SELECT * FROM (SELECT * FROM messages ORDER BY message_id DESC LIMIT %d) ORDER BY message_id ASC;", limitValue));
+                while (resSet.next()) {
+                    messages.add(resSet.getString("message"));
+                }
+                return messages;
+            } catch(SQLException e){
+                System.out.println(e.getMessage());
+                throw new RuntimeException(e);
+            }
+        }
+
+        public static Integer isSpecialHistoryMessage(String message) {
+
+            Pattern p = Pattern.compile("history (\\d+)");
+            Matcher m = p.matcher(message);
+            String historySteps = "";
+            
+            while (m.find()) {
+                historySteps = m.group(1);
+            }
+            
+            Integer steps = Integer.parseInt(historySteps);
+            
+            return (steps >= 0) ? steps : -1;
         }
 
         @Override
@@ -266,16 +307,7 @@ public class SimpleHttpServer {
                 InputStream eis = exchange.getRequestBody();
                 Headers headers = exchange.getRequestHeaders();
                 
-                System.out.println(headers.getFirst("Authorization"));
                 String auth_header = headers.getFirst("Authorization");
-                
-                Pattern p = Pattern.compile("Bearer_(.*)");
-                Matcher m = p.matcher("Bearer_Ym9zY236Ym9zY28=");
-                System.out.println(auth_header);
-                while (m.find()) {
-                    System.out.println(m.group(0));
-                    System.out.println(m.group(1));
-                }
 
                 String text = new String(eis.readAllBytes(), StandardCharsets.UTF_8);
 
@@ -283,11 +315,6 @@ public class SimpleHttpServer {
                 
                 String name = jo.get("name").toString();
                 String message = jo.get("message").toString();
-                
-                System.out.println(name);
-                System.out.println(message);
-
-                String bearerToken = "12QW";
                 
                 Connection conn = null;  
                 try {  
@@ -297,14 +324,24 @@ public class SimpleHttpServer {
                     conn = DriverManager.getConnection(url);
                     
                     System.out.println("Connection to SQLite has been established.");
-
                     
-                    if(tokenIsCorrect(bearerToken)) {
+                    if(tokenIsCorrect(auth_header, name)) {
 
-                        Integer user_id = obtainUserId(bearerToken, conn);
+                        Integer user_id = obtainUserId(name, conn);
+                        Integer specialHistoryMessage = isSpecialHistoryMessage(message);
+                        List<String> lastMessages;
+                        JSONArray ja_m = new JSONArray();
 
-                        saveMessageToDatabase(message, user_id, conn);
-                        builder.append("message probably saved");
+                        if( specialHistoryMessage >= 0) {
+                            lastMessages = selectLastMessages(conn, specialHistoryMessage);
+                            for( String aMessage : lastMessages) {
+                                ja_m.put(aMessage);
+                            }
+                        } else if(user_id > 0) {
+                            saveMessageToDatabase(message, user_id, conn);
+                        }
+
+                        builder.append(ja_m.toString());
 
                         byte[] bytes = builder.toString().getBytes();
                         exchange.sendResponseHeaders(200, bytes.length);
@@ -313,7 +350,7 @@ public class SimpleHttpServer {
                         os.write(bytes);
                         os.close();
                     } else {
-                        builder.append("password isn't correct");
+                        builder.append("token isn't correct");
 
                         byte[] bytes = builder.toString().getBytes();
                         exchange.sendResponseHeaders(200, bytes.length);
