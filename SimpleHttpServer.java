@@ -107,7 +107,7 @@ public class SimpleHttpServer {
             }
         }
         
-        boolean passwordIsCorrect(String name, String password, Connection conn) {
+        public static boolean passwordIsCorrect(String name, String password, Connection conn) {
             try {
                 Statement statmt = conn.createStatement();
                 ResultSet resSet;
@@ -124,7 +124,6 @@ public class SimpleHttpServer {
             StringBuilder builder = new StringBuilder();
 
             if("POST".equals(exchange.getRequestMethod())) {
-                System.out.println(exchange.getRequestMethod());
                 InputStream eis = exchange.getRequestBody();
 
                 String text = new String(eis.readAllBytes(), StandardCharsets.UTF_8);
@@ -134,11 +133,6 @@ public class SimpleHttpServer {
                 String name = jo.get("name").toString();
                 String password = jo.get("password").toString();
 
-                System.out.println(jo.toString());
-                System.out.println(password);
-                
-                System.out.println(getHash(password));
-
                 Connection conn = null;  
                 try {  
                     // db parameters  
@@ -146,8 +140,6 @@ public class SimpleHttpServer {
                     // create a connection to the database  
                     conn = DriverManager.getConnection(url);
                     
-                    System.out.println("Connection to SQLite has been established.");
-
                     if(passwordIsCorrect(name, password, conn)) {
 
                         JSONObject jo_out = new JSONObject();
@@ -191,42 +183,6 @@ public class SimpleHttpServer {
 
     static class MessagesHandler implements HttpHandler {
         
-        public static String toHex(byte[] bytes) {
-            StringBuilder hash = new StringBuilder();
-            for (int i = 0; i < bytes.length; i++) {
-                String hex = Integer.toHexString(0xFF & bytes[i]);
-                if (hex.length() == 1) {
-                    hash.append('0');
-                }
-                hash.append(hex);
-            }
-            return hash.toString();
-        }
-
-        public static String getHash(String s) {
-            try {
-                MessageDigest md = MessageDigest.getInstance("SHA-256");
-                byte[] hashbytes = md.digest(s.getBytes(StandardCharsets.UTF_8));
-                return toHex(hashbytes);            
-            } catch (NoSuchAlgorithmException e) {
-                System.out.println(e.getMessage());
-                throw new RuntimeException(e);
-            }
-        }
-        
-        boolean passwordIsCorrect(String name, String password, Connection conn) {
-            try {
-                Statement statmt = conn.createStatement();
-                ResultSet resSet;
-                String password_hash = getHash(password);
-                resSet = statmt.executeQuery(String.format("SELECT * FROM users WHERE name = '%s' AND password_hash = '%s'", name, password_hash));
-                return (resSet.next()) ? true : false;
-            } catch(SQLException e){
-                System.out.println(e.getMessage());
-                throw new RuntimeException(e);
-            }
-        }
-
         public static boolean tokenIsCorrect(String token, String name) {
             
             if(name.length() < 1)
@@ -248,7 +204,7 @@ public class SimpleHttpServer {
         public static void saveMessageToDatabase(String message, Integer user_id, Connection conn) {
             try {
                 Statement statmt = conn.createStatement();
-                statmt.executeQuery(String.format("INSERT INTO messages (MESSAGE, BELONGS_TO_USER) VALUES ('%s', %d)", message, user_id));
+                statmt.executeUpdate(String.format("INSERT INTO messages (MESSAGE, BELONGS_TO_USER) VALUES ('%s', %d)", message, user_id));
             } catch(SQLException e){
                 System.out.println(e.getMessage());
                 throw new RuntimeException(e);
@@ -267,9 +223,9 @@ public class SimpleHttpServer {
             }
         }
 
-        public static List<String> selectLastMessages(Connection conn, Integer limitValue) {
+        public static ArrayList<String> selectLastMessages(Connection conn, Integer limitValue) {
             try {
-                List<String> messages = new ArrayList<String>();
+                ArrayList<String> messages = new ArrayList<String>();
                 Statement statmt = conn.createStatement();
                 ResultSet resSet;
                 resSet = statmt.executeQuery(String.format("SELECT * FROM (SELECT * FROM messages ORDER BY message_id DESC LIMIT %d) ORDER BY message_id ASC;", limitValue));
